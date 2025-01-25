@@ -1,0 +1,51 @@
+version: '3.8' # Use the latest supported Compose file version for better features and compatibility
+
+services:
+  news_chromadb:
+    image: chromadb/chroma:latest
+    container_name: news_chromadb
+    ports:
+      - "8012:8000" # Expose port 8000 in the container to 8012 on the host
+    volumes:
+      - chroma-data:/chroma/chroma # Persistent volume for ChromaDB data
+    environment:
+      - IS_PERSISTENT=TRUE
+      - PERSIST_DIRECTORY=/chroma/chroma # Removed optional default value for clarity
+    restart: unless-stopped # Restart policy for better resilience
+    deploy:
+      resources:
+        limits:
+          memory: 512M # Use a standard memory value (e.g., 512M)
+    networks:
+      - news_network
+
+  news_analyzer:
+    build:
+      context: . # Build the Docker image from the current directory
+      dockerfile: Dockerfile # Explicitly specify the Dockerfile
+    image: news_analyzer:latest
+    ports:
+      - "8085:8080" # Expose port 8080 in the container to 8085 on the host
+    restart: always # Ensures the container restarts automatically
+    volumes:
+      - .:/app
+    runtime: nvidia # Enables NVIDIA GPU support
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1 # Use one GPU for this service
+              capabilities: [gpu] # Ensure the capability is GPU
+    networks:
+      - news_network
+
+volumes:
+  chroma-data:
+    driver: local # Use local storage for persistent data
+
+networks:
+  news_network: # Explicitly define the network
+    driver: bridge
+    external: true # Use an external network called "news_cluster_bridge"
+    name: news_cluster_bridge
