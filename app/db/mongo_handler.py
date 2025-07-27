@@ -1,26 +1,51 @@
-from typing import List, Dict
-
-import pymongo.errors
+import time
+import pymongo
 from pymongo import MongoClient, DESCENDING, errors
 from pymongo.write_concern import WriteConcern
-
 from app.core.config import settings
 from app.core.logger import logger
+from typing import List, Dict
+
+
 
 
 class Mongo:
+    _instance = None
+
+    @classmethod
+    def get_instance(cls):
+        """Gets the singleton instance, creating it if it doesn't exist."""
+        if cls._instance is None:
+            cls._instance = cls()
+        return cls._instance
+
     def __init__(self):
+        if hasattr(self, 'client') and self.client:
+             return # Already initialized
+        
         self.client = None
-        self.db = self.connect_db()
+        self.db = None
+        self.connect_db()
 
     def connect_db(self):
-        try:
-            self.client = MongoClient(
-                f'mongodb://{settings.MONGO_USER}:{settings.MONGO_PASSWORD}@{settings.MONGO_SERVER}:'
-                f'{settings.MONGO_PORT}/{settings.MONGO_DB}?authSource=admin')
-            return self.client[settings.MONGO_DB]
-        except pymongo.errors.ConnectionFailure as e:
-            logger.exception(f"Could not connect to server: {e}")
+        """Connect to MongoDB, retrying on failure."""
+        while self.db is None:
+            try:
+                logger.info("Attempting to connect to MongoDB...")
+                # Assuming your settings object has these attributes
+                conn_str = (
+                    f'mongodb://{settings.MONGO_USER}:{settings.MONGO_PASSWORD}@{settings.MONGO_SERVER}:'
+                    f'{settings.MONGO_PORT}/{settings.MONGO_DB}?authSource=admin'
+                )
+                self.client = MongoClient(conn_str, serverSelectionTimeoutMS=5000)
+                print("-----------settings.MONGO_URI: ", settings.MONGO_URI)
+                # The ismaster command is cheap and does not require auth.
+                self.client.admin.command('ismaster')
+                self.db = self.client[settings.MONGO_DB]
+                logger.success("+++++++++++++++++++++mongo connected succesfully++++++++++++++++++++++++")
+            except errors.ConnectionFailure as e:
+                logger.error(f"Could not connect to MongoDB: {e}. Retrying in 5 seconds...")
+                time.sleep(5)
 
     def has_index(self, collection: str, key: str):
         index_info = self.db[collection].index_information()
@@ -100,8 +125,15 @@ class Mongo:
         try:
             return self.db[collection].find_one(query)
         except (AttributeError, pymongo.errors.OperationFailure) as e:
-            logger.exception(e)
+            logger.exception(f"Error fetching documents from {collection}: {e}")
             return None
+        
+    def find_many(self, collection: str, query: dict, limit:int):
+        try:
+            return self.db[collection].find(query).limit(limit)
+        except (AttributeError, pymongo.errors.OperationFailure) as e:
+            logger.exception(f"Error fetching documents from {collection}: {e}")
+            return []
 
     def count(self, collection: str, query: dict) -> int:
         try:
@@ -145,6 +177,3 @@ class Mongo:
             return counts
         except (AttributeError, pymongo.errors.OperationFailure) as e:
             logger.exception(e)
-
-
-mongodb = Mongo()

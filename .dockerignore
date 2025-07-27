@@ -1,0 +1,5 @@
+chroma-data/*
+.git/
+.env
+*.log
+tmp/
